@@ -14,22 +14,28 @@ typedef int bool;
 
 int read_command(int *argc, char *argv[]);
 void deallocate_args(int argc, char *argv[]);
+char *ltrim(char *s);
+char *rtrim(char *s);
 char *trim(char *s);
 
 int main(void)
 {
-    bool should_wait = FALSE;
-
+    bool prev_should_wait = TRUE;
     while (TRUE)
     {
         printf("shell> ");
         int argc;
         char *argv[MAX_LINE / 2 + 1];
-        if (read_command(&argc, argv) < 0) /* Continue incase of reading errors */
+        bool should_wait = read_command(&argc, argv);
+
+        if (should_wait == -1) /* Handle errors */
             continue;
 
-        if (strcmp(argv[0], "exit") == 0) /* exit shell */
+        if (strcmp(argv[0], "exit") == 0)
             break;
+
+        if (prev_should_wait == FALSE)
+            wait(NULL);
 
         pid_t child_pid = fork();
 
@@ -49,7 +55,10 @@ int main(void)
             exit(0);
         }
 
-        wait(NULL);
+        if (should_wait)
+            wait(NULL);
+
+        prev_should_wait = should_wait;
 
         // free memory space allocated for argv
         deallocate_args(argc, argv);
@@ -57,6 +66,13 @@ int main(void)
     return 0;
 }
 
+/**
+ * @brief read command line from stdin & convert it into args array
+ * @param argc
+ * @param argv
+ * @param should_wait
+ * @return -1 incase of errors or bool indicating wether it should wait or not
+ */
 int read_command(int *argc, char *argv[])
 {
     *argc = 0;
@@ -67,14 +83,23 @@ int read_command(int *argc, char *argv[])
     if (command_line[strlen(command_line) - 1] != '\n')
     {
         printf("Exceeded allowed command length\n");
-        // flush the standard input
-        while (getchar() != '\n')
+        while (getchar() != '\n') /* flush the standard input */
             ;
         return -1;
     }
 
-    /* Trim whitespace from command_line */
-    strcpy(command_line, trim(command_line));
+    trim(command_line);
+
+    int command_size = strlen(command_line);
+
+    bool should_wait = TRUE;
+    if (command_line[command_size - 1] == '&')
+    {
+        should_wait = FALSE;
+        command_line[command_size - 1] = '\0'; /* remove & character */
+        rtrim(command_line);
+        command_size = strlen(command_line);
+    }
 
     if (strlen(command_line) == 0)
         return -1;
@@ -97,7 +122,7 @@ int read_command(int *argc, char *argv[])
 
     argv[*argc] = NULL; /* Append NULL to the end of argv (required by execvp) */
 
-    return 0;
+    return should_wait;
 };
 
 void deallocate_args(int argc, char *argv[])
