@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <string.h>
-#include <unistd.h>
 #include <errno.h>
+#include <unistd.h>
 #include <sys/wait.h>
+
 #define MAX_LINE 80 /* The maximum length command */
 #define TRUE 1
 #define FALSE 0
@@ -12,6 +14,7 @@ typedef int bool;
 
 int read_command(char *command, int *argc, char *argv[]);
 void deallocate_args(int argc, char *argv[]);
+char *trim(char *s);
 
 int main(void)
 {
@@ -20,14 +23,12 @@ int main(void)
     while (TRUE)
     {
         printf("shell> ");
-        char command[MAX_LINE] = "";
-        int argc = 0;
+        char command[MAX_LINE];
+        int argc;
         char *argv[MAX_LINE / 2 + 1];
+        /* Continue incase of reading errors */
         if (read_command(command, &argc, argv) < 0)
-        {
-            /* Continue incase of reading errors */
             continue;
-        }
 
         // exit shell
         if (strcmp(command, "exit") == 0)
@@ -41,12 +42,11 @@ int main(void)
 
 int read_command(char *command, int *argc, char *argv[])
 {
+    strcpy(command, "");
+    *argc = 0;
+
     char command_line[MAX_LINE];
     fgets(command_line, MAX_LINE, stdin);
-
-    /* Return -1 indicating error if user entered nothing (fgets capture new line character) */
-    if (command_line[0] == '\n')
-        return -1;
 
     // Return -1 indicating error if the input exceeded allowed length (MAX_LINE)
     if (command_line[strlen(command_line) - 1] != '\n')
@@ -58,11 +58,14 @@ int read_command(char *command, int *argc, char *argv[])
         return -1;
     }
 
-    /* Remove trainling newline */
-    command_line[strlen(command_line) - 1] = '\0';
+    /* Trim whitespace from command_line */
+    strcpy(command_line, trim(command_line));
 
-    /* split input (command_line) by space
-    saving first word in command variable and then the rest to argv array */
+    /* Return -1 indicating error if user entered nothing (fgets capture new line character) */
+    if (strlen(command_line) == 0)
+        return -1;
+
+    /* split command_line by space saving first word in command and the reset in argv array */
     char cur_word[MAX_LINE] = "";
     for (int i = 0; i <= strlen(command_line); i++)
     {
@@ -71,7 +74,7 @@ int read_command(char *command, int *argc, char *argv[])
         {
             if (strlen(command) == 0)
                 strcpy(command, cur_word);
-            else
+            else if (!isspace(command_line[i - 1])) /* only if the previous char was not space */
             {
                 *argc += 1;
                 argv[*argc - 1] = (char *)malloc(MAX_LINE * sizeof(cur_word));
@@ -92,4 +95,26 @@ void deallocate_args(int argc, char *argv[])
 {
     for (int i = 0; i < argc; i++)
         free(argv[i]);
+}
+
+/* ref: https://stackoverflow.com/a/1431206/10272966 */
+char *ltrim(char *s)
+{
+    while (isspace(*s))
+        s++;
+    return s;
+}
+
+char *rtrim(char *s)
+{
+    char *back = s + strlen(s);
+    while (isspace(*--back))
+        ;
+    *(back + 1) = '\0';
+    return s;
+}
+
+char *trim(char *s)
+{
+    return rtrim(ltrim(s));
 }
