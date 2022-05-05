@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #define MAX_LINE 80 /* The maximum length command */
 #define TRUE 1
@@ -46,7 +47,26 @@ int main(void)
         }
         if (child_pid == 0)
         {
-            /* Child proccess */
+            /* ---------- Child proccess --------  */
+
+            /* Handle redirects */
+            for (int i = 0; i < argc; i++)
+            {
+                if (strcmp(argv[i], ">") == 0)
+                {
+                    int fd = open(argv[i + 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+                    dup2(fd, STDOUT_FILENO);
+                    argv[i] = NULL; /* Stop command execution at i */
+                    break;
+                }
+                else if (strcmp(argv[i], "<") == 0)
+                {
+                    argv[i] = argv[i + 1];
+                    argv[i + 1] = NULL; /* Stop command execution at i + 1 */
+                    break;
+                }
+            }
+
             if (execvp(argv[0], argv) == -1)
             {
                 perror("execvp");
