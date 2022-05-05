@@ -29,7 +29,7 @@ int main(void)
         char *argv[MAX_LINE / 2 + 1];
         bool should_wait = read_command(&argc, argv);
 
-        if (should_wait == -1) /* Handle errors */
+        if (should_wait == -1) // Handle errors
             continue;
 
         if (strcmp(argv[0], "exit") == 0)
@@ -56,13 +56,13 @@ int main(void)
                 {
                     int fd = open(argv[i + 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
                     dup2(fd, STDOUT_FILENO);
-                    argv[i] = NULL; /* Stop command execution at i */
+                    argv[i] = NULL; // Stop command execution at i
                     break;
                 }
                 else if (strcmp(argv[i], "<") == 0)
                 {
                     argv[i] = argv[i + 1];
-                    argv[i + 1] = NULL; /* Stop command execution at i + 1 */
+                    argv[i + 1] = NULL; // Stop command execution at i + 1
                     break;
                 }
             }
@@ -80,8 +80,7 @@ int main(void)
 
         prev_should_wait = should_wait;
 
-        // free memory space allocated for argv
-        deallocate_args(argc, argv);
+        deallocate_args(argc, argv); // free memory space allocated for argv
     }
     return 0;
 }
@@ -103,7 +102,7 @@ int read_command(int *argc, char *argv[])
     if (command_line[strlen(command_line) - 1] != '\n')
     {
         printf("Exceeded allowed command length\n");
-        while (getchar() != '\n') /* flush the standard input */
+        while (getchar() != '\n') // flush the standard input
             ;
         return -1;
     }
@@ -116,7 +115,7 @@ int read_command(int *argc, char *argv[])
     if (command_line[command_size - 1] == '&')
     {
         should_wait = FALSE;
-        command_line[command_size - 1] = '\0'; /* remove & character */
+        command_line[command_size - 1] = '\0'; // remove & character
         rtrim(command_line);
         command_size = strlen(command_line);
     }
@@ -129,18 +128,18 @@ int read_command(int *argc, char *argv[])
     {
         if (command_line[i] == ' ' || command_line[i] == '\0')
         {
-            if (command_line[i - 1] == ' ') /* Ignore if the previous char was space */
+            if (command_line[i - 1] == ' ') // Ignore if the previous char was space
                 continue;
+            argv[*argc] = (char *)malloc(MAX_LINE * sizeof(cur_word));
+            strcpy(argv[*argc], cur_word);
             *argc += 1;
-            argv[*argc - 1] = (char *)malloc(MAX_LINE * sizeof(cur_word));
-            strcpy(argv[*argc - 1], cur_word);
-            strcpy(cur_word, ""); /* reset cur_word */
+            strcpy(cur_word, ""); // reset cur_word
         }
         else
             strncat(cur_word, &command_line[i], 1);
     }
 
-    argv[*argc] = NULL; /* Append NULL to the end of argv (required by execvp) */
+    argv[*argc] = NULL; // Append NULL to the end of argv (required by execvp)
 
     return should_wait;
 };
