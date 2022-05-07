@@ -13,8 +13,14 @@
 #define FALSE 0
 typedef int bool;
 
-int read_command(int *argc, char *argv[]);
-void deallocate_args(int argc, char *argv[]);
+struct command
+{
+    int argc;
+    char **argv;
+};
+
+int read_command(struct command *command, int *should_wait);
+void deallocate_command(struct command *command);
 char *ltrim(char *s);
 char *rtrim(char *s);
 char *trim(char *s);
@@ -25,21 +31,18 @@ int main(void)
     while (TRUE)
     {
         printf("shell> ");
-        int argc;
-        char *argv[MAX_LINE / 2 + 1];
-        bool should_wait = read_command(&argc, argv);
-
-        if (should_wait == -1) // Handle errors
+        bool should_wait = TRUE;
+        struct command command = {.argc = 0, .argv = malloc(MAX_LINE * sizeof(char *))};
+        if (read_command(&command, &should_wait) == -1) // handle errors
             continue;
 
-        if (strcmp(argv[0], "exit") == 0)
+        if (strcmp(command.argv[0], "exit") == 0)
             break;
 
-        if (prev_should_wait == FALSE)
+        if (prev_should_wait == FALSE) // fix wired behaviour when not waiting the children proccess to finish
             wait(NULL);
 
         pid_t child_pid = fork();
-
         if (child_pid < 0)
         {
             printf("Fork failed\n");
@@ -49,25 +52,74 @@ int main(void)
         {
             /* ---------- Child proccess --------  */
 
-            /* Handle redirects */
-            for (int i = 0; i < argc; i++)
+            /* handle redirects or pipes */
+            for (int i = 0; i < command.argc; i++)
             {
-                if (strcmp(argv[i], ">") == 0)
+                if (strcmp(command.argv[i], ">") == 0) // handle redirecting to a file
                 {
-                    int fd = open(argv[i + 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+                    int fd = open(command.argv[i + 1], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
                     dup2(fd, STDOUT_FILENO);
-                    argv[i] = NULL; // Stop command execution at i
+                    command.argv[i] = NULL; // stop command execution at i
                     break;
                 }
-                else if (strcmp(argv[i], "<") == 0)
+                else if (strcmp(command.argv[i], "<") == 0) // handle redirection from a file
                 {
-                    argv[i] = argv[i + 1];
-                    argv[i + 1] = NULL; // Stop command execution at i + 1
+                    command.argv[i] = command.argv[i + 1];
+                    command.argv[i + 1] = NULL;
                     break;
+                }
+                else if (strcmp(command.argv[i], "|") == 0) // handle pipes
+                {
+                    command.argv[i] = NULL; // stop first command execution at i
+                    /* build second_command struct
+                    Note: the code in the following loop is simillar to the code exists in read_command function */
+                    struct command second_command = {.argc = 0, .argv = malloc(MAX_LINE * sizeof(char *))};
+                    for (int j = i + 1; j < command.argc; j++)
+                    {
+                        int arg_index = second_command.argc; // put the new argument to argv end
+                        second_command.argv[arg_index] = malloc(sizeof(command.argv[j]));
+                        strcpy(second_command.argv[arg_index], command.argv[j]);
+                        second_command.argc += 1;
+                    }
+                    second_command.argv[second_command.argc] = NULL; // required by execvp
+
+                    int fd[2];
+                    pipe(fd);
+                    pid_t child_pid = fork();
+                    if (child_pid < 0)
+                    {
+                        printf("Fork failed\n");
+                        exit(1);
+                    }
+                    else if (child_pid == 0)
+                    {
+                        /* -------- child proccess ------- */
+                        close(fd[0]);
+                        dup2(fd[1], STDOUT_FILENO);
+                        // execute the first command in the created child proccess
+                        if (execvp(command.argv[0], command.argv) == -1)
+                        {
+                            perror("execvp");
+                            exit(1);
+                        }
+                        exit(0);
+                    }
+                    /* --------- Parent ---------- */
+                    close(fd[1]);
+                    dup2(fd[0], STDIN_FILENO);
+                    // execute the second command in the parent proccess
+                    if (execvp(second_command.argv[0], second_command.argv) == -1)
+                    {
+                        perror("execvp");
+                        exit(1);
+                    }
+                    deallocate_command(&second_command);
+                    exit(0); // Exit & do not execute further code in child procces
                 }
             }
+            /* End handle redirects & pipes */
 
-            if (execvp(argv[0], argv) == -1)
+            if (execvp(command.argv[0], command.argv) == -1)
             {
                 perror("execvp");
                 exit(1);
@@ -80,7 +132,7 @@ int main(void)
 
         prev_should_wait = should_wait;
 
-        deallocate_args(argc, argv); // free memory space allocated for argv
+        deallocate_command(&command);
     }
     return 0;
 }
@@ -92,10 +144,8 @@ int main(void)
  * @param should_wait
  * @return -1 incase of errors or bool indicating wether it should wait or not
  */
-int read_command(int *argc, char *argv[])
+int read_command(struct command *command, int *should_wait)
 {
-    *argc = 0;
-
     char command_line[MAX_LINE];
     fgets(command_line, MAX_LINE, stdin);
 
@@ -111,10 +161,9 @@ int read_command(int *argc, char *argv[])
 
     int command_size = strlen(command_line);
 
-    bool should_wait = TRUE;
     if (command_line[command_size - 1] == '&')
     {
-        should_wait = FALSE;
+        *should_wait = FALSE;
         command_line[command_size - 1] = '\0'; // remove & character
         rtrim(command_line);
         command_size = strlen(command_line);
@@ -123,6 +172,8 @@ int read_command(int *argc, char *argv[])
     if (strlen(command_line) == 0)
         return -1;
 
+    command->argc = 0;
+    command->argv = (char **)malloc((MAX_LINE / 2 + 1) * sizeof(char *)); // malloc 41 space for argv
     char cur_word[MAX_LINE] = "";
     for (int i = 0; i <= strlen(command_line); i++)
     {
@@ -130,24 +181,26 @@ int read_command(int *argc, char *argv[])
         {
             if (command_line[i - 1] == ' ') // Ignore if the previous char was space
                 continue;
-            argv[*argc] = (char *)malloc(MAX_LINE * sizeof(cur_word));
-            strcpy(argv[*argc], cur_word);
-            *argc += 1;
+            int arg_index = command->argc; // put the new argument to argv end
+            command->argv[arg_index] = malloc(sizeof(cur_word));
+            strcpy(command->argv[arg_index], cur_word);
+
+            command->argc += 1;
             strcpy(cur_word, ""); // reset cur_word
         }
         else
             strncat(cur_word, &command_line[i], 1);
     }
 
-    argv[*argc] = NULL; // Append NULL to the end of argv (required by execvp)
-
-    return should_wait;
+    command->argv[command->argc] = NULL; // put NULL to the end of argv (required by execvp)
+    return 0;                            // no errors
 };
 
-void deallocate_args(int argc, char *argv[])
+void deallocate_command(struct command *command)
 {
-    for (int i = 0; i < argc; i++)
-        free(argv[i]);
+    for (int i = 0; i < command->argc; i++)
+        free(command->argv[i]);
+    free(command->argv);
 }
 
 /* ref: https://stackoverflow.com/a/1431206/10272966 */
